@@ -12,12 +12,15 @@ const CHECK_URL = process.env.CHECK_URL || "https://www.adopteereendier.be/katte
 // Constants
 const FETCH_TIMEOUT = 15000; // 15 seconds
 const MAX_CATS_TO_NOTIFY = 10;
+const PAGES_TO_CHECK = 5; // Check pages 1-5
+const MIN_AGE_MONTHS = 6; // Minimum age in months
 
 // Types
 interface Cat {
   id: string;
   name: string;
   age: string;
+  ageInMonths: number;
   imageUrl: string;
   url: string;
 }
@@ -44,11 +47,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log(`[${new Date().toISOString()}] Starting cat check for: ${CHECK_URL}`);
 
-    // Fetch and parse the listing page
-    const html = await fetchListing(CHECK_URL);
-    const cats = extractCats(html);
+    // Fetch and parse multiple pages
+    const allCats: Cat[] = [];
+    for (let page = 1; page <= PAGES_TO_CHECK; page++) {
+      const pageUrl = page === 1 ? CHECK_URL : `${CHECK_URL}${CHECK_URL.includes('?') ? '&' : '?'}page=${page}`;
+      console.log(`Fetching page ${page}...`);
+      
+      const html = await fetchListing(pageUrl);
+      const pageCats = extractCats(html);
+      allCats.push(...pageCats);
+      
+      // Small delay between page requests
+      if (page < PAGES_TO_CHECK) {
+        await sleep(1000);
+      }
+    }
 
-    console.log(`Found ${cats.length} cats on the page`);
+    // Remove duplicates by ID
+    const uniqueCats = allCats.filter(
+      (cat, index, self) => self.findIndex(c => c.id === cat.id) === index
+    );
+
+    // Filter out cats under minimum age
+    const cats = uniqueCats.filter(cat => cat.ageInMonths >= MIN_AGE_MONTHS);
+    const filteredCount = uniqueCats.length - cats.length;
+
+    console.log(`Found ${uniqueCats.length} total cats, ${cats.length} cats over ${MIN_AGE_MONTHS} months (filtered ${filteredCount})`);
 
     if (cats.length === 0) {
       console.warn("WARNING: No cats found. HTML structure may have changed.");
@@ -161,6 +185,8 @@ function extractCats(html: string): Cat[] {
 
     // Extract age - look for age patterns
     let age = "";
+    let ageInMonths = 0;
+    
     const ageElement = $(element).find('[class*="age"], [class*="leeftijd"]').first();
     if (ageElement.length) {
       age = ageElement.text().trim();
@@ -170,6 +196,22 @@ function extractCats(html: string): Cat[] {
       const ageMatch = text.match(/(\d+)\s*(jaar|maand|month|year)/i);
       if (ageMatch) {
         age = ageMatch[0];
+      }
+    }
+
+    // Parse age into months
+    if (age) {
+      const yearMatch = age.match(/(\d+)\s*jaar/i);
+      const monthMatch = age.match(/(\d+)\s*maand/i);
+      
+      if (yearMatch) {
+        ageInMonths = parseInt(yearMatch[1]) * 12;
+        // Check if there are also months mentioned (e.g., "1 jaar 3 maanden")
+        if (monthMatch) {
+          ageInMonths += parseInt(monthMatch[1]);
+        }
+      } else if (monthMatch) {
+        ageInMonths = parseInt(monthMatch[1]);
       }
     }
 
@@ -193,6 +235,7 @@ function extractCats(html: string): Cat[] {
       id,
       name: name || `Cat ${id}`,
       age: age || "Unknown",
+      ageInMonths,
       imageUrl,
       url
     });
