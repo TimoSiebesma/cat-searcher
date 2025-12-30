@@ -1,0 +1,14 @@
+{
+  "crons": [
+    {
+      "path": "/api/check-cats",
+      "schedule": "*/30 * * * *"
+    }
+  ],
+  "env": {
+    "TELEGRAM_BOT_TOKEN": "@telegram_bot_token",
+    "TELEGRAM_CHAT_ID": "@telegram_chat_id",
+    "CRON_SECRET": "@cron_secret",
+    "CHECK_URL": "@check_url"
+  }
+}
