@@ -382,11 +382,11 @@ function isDuoAdoption(cat: Cat): boolean {
     return true;
   }
 
-  // Pattern 4: Name contains "(en ...)" which means "(and ...)"
-  // e.g., "Boris (en Bella)", "Milo (en Luna)"
+  // Pattern 4: Name contains "(en ...)" or "(& ...)" which means "(and ...)"
+  // e.g., "Boris (en Bella)", "Milo (en Luna)", "Flower (& Milou)", "Felix (&Max)"
   // This indicates they must be adopted together
-  if (/\(\s*en\s+[^)]+\)/i.test(cat.name)) {
-    console.log(`[DUO FILTER] Cat "${cat.name}" (${cat.id}) - duo adoption "(en ...)" pattern in name`);
+  if (/\(\s*(&|en)\s+[^)]+\)/i.test(cat.name)) {
+    console.log(`[DUO FILTER] Cat "${cat.name}" (${cat.id}) - duo adoption "(en/& ...)" pattern in name`);
     return true;
   }
 
