@@ -11,7 +11,7 @@ const CHECK_URL = process.env.CHECK_URL || "https://www.adopteereendier.be/katte
 
 // Constants
 const FETCH_TIMEOUT = 15000; // 15 seconds
-const MAX_CATS_TO_NOTIFY = 10;
+const MAX_CATS_TO_NOTIFY = 30; // Increased from 10 to show more cats
 const PAGES_TO_CHECK = 5; // Check pages 1-5
 const MIN_AGE_MONTHS = 6; // Minimum age in months
 
@@ -50,13 +50,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Fetch and parse multiple pages
     const allCats: Cat[] = [];
     for (let page = 1; page <= PAGES_TO_CHECK; page++) {
-      const pageUrl = page === 1 ? CHECK_URL : `${CHECK_URL}${CHECK_URL.includes('?') ? '&' : '?'}page=${page}`;
+      const pageUrl = page === 1 ? CHECK_URL : `${CHECK_URL}${CHECK_URL.includes("?") ? "&" : "?"}page=${page}`;
       console.log(`Fetching page ${page}...`);
-      
+
       const html = await fetchListing(pageUrl);
       const pageCats = extractCats(html);
       allCats.push(...pageCats);
-      
+
       // Small delay between page requests
       if (page < PAGES_TO_CHECK) {
         await sleep(1000);
@@ -64,9 +64,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Remove duplicates by ID
-    const uniqueCats = allCats.filter(
-      (cat, index, self) => self.findIndex(c => c.id === cat.id) === index
-    );
+    const uniqueCats = allCats.filter((cat, index, self) => self.findIndex(c => c.id === cat.id) === index);
 
     // Filter out cats under minimum age
     const cats = uniqueCats.filter(cat => cat.ageInMonths >= MIN_AGE_MONTHS);
@@ -186,7 +184,7 @@ function extractCats(html: string): Cat[] {
     // Extract age - look for age patterns
     let age = "";
     let ageInMonths = 0;
-    
+
     const ageElement = $(element).find('[class*="age"], [class*="leeftijd"]').first();
     if (ageElement.length) {
       age = ageElement.text().trim();
@@ -203,7 +201,7 @@ function extractCats(html: string): Cat[] {
     if (age) {
       const yearMatch = age.match(/(\d+)\s*jaar/i);
       const monthMatch = age.match(/(\d+)\s*maand/i);
-      
+
       if (yearMatch) {
         ageInMonths = parseInt(yearMatch[1]) * 12;
         // Check if there are also months mentioned (e.g., "1 jaar 3 maanden")
@@ -227,9 +225,7 @@ function extractCats(html: string): Cat[] {
     }
 
     // Build full URL
-    const url = nameSlug
-      ? `https://www.adopteereendier.be/katten/${id}/${nameSlug}`
-      : `https://www.adopteereendier.be/katten/${id}`;
+    const url = nameSlug ? `https://www.adopteereendier.be/katten/${id}/${nameSlug}` : `https://www.adopteereendier.be/katten/${id}`;
 
     cats.push({
       id,
@@ -242,9 +238,7 @@ function extractCats(html: string): Cat[] {
   });
 
   // Remove duplicates by ID
-  const uniqueCats = cats.filter(
-    (cat, index, self) => self.findIndex(c => c.id === cat.id) === index
-  );
+  const uniqueCats = cats.filter((cat, index, self) => self.findIndex(c => c.id === cat.id) === index);
 
   return uniqueCats;
 }
@@ -319,17 +313,14 @@ async function notifyTelegram(newCats: Cat[], retryCount = 1): Promise<void> {
         body.photo = cat.imageUrl;
       }
 
-      const response = await fetch(
-        cat.imageUrl ? telegramUrl : `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(cat.imageUrl ? body : { chat_id: TELEGRAM_CHAT_ID, text: caption, parse_mode: "Markdown" }),
-          signal: controller.signal
-        }
-      );
+      const response = await fetch(cat.imageUrl ? telegramUrl : `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(cat.imageUrl ? body : { chat_id: TELEGRAM_CHAT_ID, text: caption, parse_mode: "Markdown" }),
+        signal: controller.signal
+      });
 
       clearTimeout(timeoutId);
 
