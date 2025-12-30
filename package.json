@@ -1,6 +1,7 @@
 {
   "name": "cat-searcher-notifier",
   "version": "1.0.0",
+  "type": "module",
   "description": "Vercel serverless notifier for new adoptable cats",
   "scripts": {
     "dev": "vercel dev",
