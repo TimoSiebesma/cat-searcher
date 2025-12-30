@@ -7,6 +7,8 @@ Automated notification system for new adoptable cats on adopteereendier.be. Runs
 - ✅ Checks for new cats every 15 minutes via Vercel Cron
 - ✅ Persistent tracking using Vercel KV (Redis)
 - ✅ Telegram notifications with direct links
+- ✅ **Multi-chat support** - Send notifications to multiple groups and users
+- ✅ **Automatic chat registration** - Add bot to any group to receive notifications
 - ✅ Dynamic page fetching (automatically fetches all available pages)
 - ✅ Filters out duo adoptions (cats that must be adopted together)
 - ✅ Age filtering (configurable minimum age)
@@ -35,10 +37,18 @@ Automated notification system for new adoptable cats on adopteereendier.be. Runs
 2. **Telegram Bot**:
    - Create via [@BotFather](https://t.me/botfather)
    - Get your bot token
-3. **Telegram Chat ID**:
-   - Message your bot
-   - Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
-   - Find your `chat.id` in the response
+
+## Multi-Chat Support
+
+This bot supports sending notifications to **multiple Telegram chats** (groups or private conversations). See [MULTI-CHAT-SETUP.md](MULTI-CHAT-SETUP.md) for detailed instructions.
+
+**Quick setup:**
+1. Set up the Telegram webhook (see Multi-Chat Setup guide)
+2. Add the bot to any Telegram group
+3. The group will automatically receive notifications!
+
+**Single chat mode:**
+For a single chat (backward compatible), you can still use the `TELEGRAM_CHAT_ID` environment variable.
 
 ## Setup Instructions
 

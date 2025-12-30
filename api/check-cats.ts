@@ -5,7 +5,7 @@ import * as crypto from "crypto";
 
 // Configuration from environment variables
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID!; // Fallback for single chat mode
 const CRON_SECRET = process.env.CRON_SECRET!;
 const CHECK_URL = process.env.CHECK_URL || "https://www.adopteereendier.be/katten?gedragkinderen=6%2C14&leeftijd=0-2&regio=";
 const FILTER_DUO_ADOPTIONS = process.env.FILTER_DUO_ADOPTIONS !== "false"; // Default to true
@@ -15,6 +15,7 @@ const FETCH_TIMEOUT = 15000; // 15 seconds
 const MAX_CATS_TO_NOTIFY = 30; // Increased from 10 to show more cats
 const CATS_PER_PAGE = 16; // Number of cats shown per page
 const MIN_AGE_MONTHS = 6; // Minimum age in months
+const CHAT_IDS_KEY = "telegram:chat_ids"; // Redis key for storing multiple chat IDs
 
 // Types
 interface Cat {
@@ -45,7 +46,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Validate environment variables
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !CRON_SECRET) {
+    if (!TELEGRAM_BOT_TOKEN || !CRON_SECRET) {
       console.error("Missing required environment variables");
       return res.status(500).json({
         error: "Server misconfigured",
@@ -435,17 +436,84 @@ async function persistCatIds(catIds: string[]): Promise<void> {
 }
 
 /**
- * Send Telegram notification about new cats
+ * Get all registered chat IDs from KV storage
+ */
+async function getChatIds(): Promise<string[]> {
+  try {
+    const chatDatas = await kv.smembers(CHAT_IDS_KEY) as string[];
+
+    if (!chatDatas || chatDatas.length === 0) {
+      // Fallback to environment variable if no chats registered
+      if (TELEGRAM_CHAT_ID) {
+        console.log("[KV] No registered chats found, using TELEGRAM_CHAT_ID from environment");
+        return [TELEGRAM_CHAT_ID];
+      }
+      console.warn("[KV] No registered chats found and no TELEGRAM_CHAT_ID set");
+      return [];
+    }
+
+    const chatIds = chatDatas.map(chatDataStr => {
+      try {
+        const chatData = JSON.parse(chatDataStr);
+        return chatData.id;
+      } catch (e) {
+        console.warn(`[KV] Failed to parse chat data: ${chatDataStr}`);
+        return null;
+      }
+    }).filter(id => id !== null) as string[];
+
+    console.log(`[KV] Found ${chatIds.length} registered chat(s): ${chatIds.join(", ")}`);
+    return chatIds;
+  } catch (error) {
+    console.error("[KV] Error fetching chat IDs:", error);
+    // Fallback to environment variable
+    if (TELEGRAM_CHAT_ID) {
+      return [TELEGRAM_CHAT_ID];
+    }
+    return [];
+  }
+}
+
+/**
+ * Send Telegram notification about new cats to all registered chats
  */
 async function notifyTelegram(newCats: Cat[], retryCount = 1): Promise<void> {
   const count = newCats.length;
   const catsToNotify = newCats.slice(0, MAX_CATS_TO_NOTIFY);
   const remainingCount = count - catsToNotify.length;
 
+  // Get all registered chat IDs
+  const chatIds = await getChatIds();
+
+  if (chatIds.length === 0) {
+    console.warn("[Telegram] No chat IDs found, skipping notifications");
+    return;
+  }
+
+  console.log(`[Telegram] Sending notifications to ${chatIds.length} chat(s)`);
+
+  // Send notifications to each registered chat
+  for (const chatId of chatIds) {
+    try {
+      await sendCatNotifications(chatId, catsToNotify, remainingCount);
+      console.log(`[Telegram] Sent notifications to chat ${chatId}`);
+    } catch (error) {
+      console.error(`[Telegram] Failed to send notifications to chat ${chatId}:`, error);
+      // Continue with other chats even if one fails
+    }
+  }
+
+  console.log(`[Telegram] Sent ${Math.min(count, MAX_CATS_TO_NOTIFY)} cat notifications to ${chatIds.length} chat(s)`);
+}
+
+/**
+ * Send cat notifications to a specific chat
+ */
+async function sendCatNotifications(chatId: string, cats: Cat[], remainingCount: number): Promise<void> {
   const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
 
   // Send a message for each cat with image
-  for (const cat of catsToNotify) {
+  for (const cat of cats) {
     const caption = `🐱 *${cat.name}*\n📅 Age: ${cat.age}\n\n[View Profile →](${cat.url})`;
 
     const controller = new AbortController();
@@ -453,7 +521,7 @@ async function notifyTelegram(newCats: Cat[], retryCount = 1): Promise<void> {
 
     try {
       const body: any = {
-        chat_id: TELEGRAM_CHAT_ID,
+        chat_id: chatId,
         caption: caption,
         parse_mode: "Markdown"
       };
@@ -468,7 +536,7 @@ async function notifyTelegram(newCats: Cat[], retryCount = 1): Promise<void> {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(cat.imageUrl ? body : { chat_id: TELEGRAM_CHAT_ID, text: caption, parse_mode: "Markdown" }),
+        body: JSON.stringify(cat.imageUrl ? body : { chat_id: chatId, text: caption, parse_mode: "Markdown" }),
         signal: controller.signal
       });
 
@@ -476,7 +544,7 @@ async function notifyTelegram(newCats: Cat[], retryCount = 1): Promise<void> {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.warn(`Failed to send message for cat ${cat.id}: ${errorText}`);
+        console.warn(`[Telegram] Failed to send message for cat ${cat.id} to chat ${chatId}: ${errorText}`);
         // Continue with other cats even if one fails
       }
 
@@ -484,7 +552,7 @@ async function notifyTelegram(newCats: Cat[], retryCount = 1): Promise<void> {
       await sleep(500);
     } catch (error) {
       clearTimeout(timeoutId);
-      console.warn(`Error sending message for cat ${cat.id}:`, error);
+      console.warn(`[Telegram] Error sending message for cat ${cat.id} to chat ${chatId}:`, error);
       // Continue with other cats
     }
   }
@@ -499,17 +567,15 @@ async function notifyTelegram(newCats: Cat[], retryCount = 1): Promise<void> {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          chat_id: TELEGRAM_CHAT_ID,
+          chat_id: chatId,
           text: summaryMessage,
           parse_mode: "Markdown"
         })
       });
     } catch (error) {
-      console.warn("Failed to send summary message:", error);
+      console.warn(`[Telegram] Failed to send summary message to chat ${chatId}:`, error);
     }
   }
-
-  console.log(`Sent ${Math.min(count, MAX_CATS_TO_NOTIFY)} Telegram notifications`);
 }
 
 /**

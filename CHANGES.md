@@ -1,4 +1,63 @@
-# Cat Searcher - Dynamic Page Fetching Implementation
+# Cat Searcher - Change Log
+
+## 2025-12-30: Multi-Chat Support
+
+### Problem
+Chat with ID `-5233959898` ("De kattenzoekers") was not receiving notifications because the bot only supported a single chat ID via the `TELEGRAM_CHAT_ID` environment variable.
+
+### Solution
+Implemented multi-chat support allowing the bot to send notifications to multiple Telegram chats (groups or private conversations) simultaneously.
+
+### New Files
+
+1. **`api/telegram-webhook.ts`**
+   - Webhook endpoint to receive Telegram bot updates
+   - Automatically registers chats when bot is added to groups
+   - Handles commands: `/start`, `/status`, `/stop`
+   - Stores chat IDs in Vercel KV storage
+
+2. **`add-chat.ts`** - Helper script to manually add chat IDs
+3. **`list-chats.ts`** - Helper script to view registered chats
+4. **`MULTI-CHAT-SETUP.md`** - Comprehensive multi-chat setup guide
+5. **`FIX-CHAT.md`** - Quick fix guide for chat -5233959898
+
+### Modified Files
+
+**`api/check-cats.ts`:**
+- Added `getChatIds()` function to fetch all registered chats from KV
+- Refactored `notifyTelegram()` to send to multiple chats
+- Added fallback logic to use `TELEGRAM_CHAT_ID` env var if no chats in KV
+- Improved logging with chat-specific messages
+
+**`README.md`:**
+- Added multi-chat features
+- Added link to detailed setup guide
+
+### How to Fix Chat -5233959898
+
+**Option 1 (Recommended):** Set up webhook
+```powershell
+Invoke-RestMethod -Uri "https://api.telegram.org/botYOUR_TOKEN/setWebhook" `
+  -Method Post `
+  -Body @{ url = "https://YOUR_APP.vercel.app/api/telegram-webhook" } `
+  -ContentType "application/json"
+```
+Then remove and re-add bot to the group.
+
+**Option 2:** Manual registration
+```powershell
+npx tsx add-chat.ts -5233959898 "De kattenzoekers"
+```
+
+**Option 3:** Use environment variable
+```bash
+vercel env add TELEGRAM_CHAT_ID  # Enter: -5233959898
+vercel --prod
+```
+
+---
+
+## 2024: Dynamic Page Fetching Implementation
 
 ## Changes Made
 
