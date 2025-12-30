@@ -8,6 +8,7 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
 const CRON_SECRET = process.env.CRON_SECRET!;
 const CHECK_URL = process.env.CHECK_URL || "https://www.adopteereendier.be/katten?gedragkinderen=6%2C14&leeftijd=0-2&regio=";
+const FILTER_DUO_ADOPTIONS = process.env.FILTER_DUO_ADOPTIONS !== "false"; // Default to true
 
 // Constants
 const FETCH_TIMEOUT = 15000; // 15 seconds
@@ -23,6 +24,8 @@ interface Cat {
   ageInMonths: number;
   imageUrl: string;
   url: string;
+  description?: string;
+  isDuoAdoption?: boolean;
 }
 
 interface PageInfo {
@@ -85,10 +88,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const uniqueCats = allCats.filter((cat, index, self) => self.findIndex(c => c.id === cat.id) === index);
 
     // Filter out cats under minimum age
-    const cats = uniqueCats.filter(cat => cat.ageInMonths >= MIN_AGE_MONTHS);
-    const filteredCount = uniqueCats.length - cats.length;
+    let cats = uniqueCats.filter(cat => cat.ageInMonths >= MIN_AGE_MONTHS);
+    const filteredByAge = uniqueCats.length - cats.length;
 
-    console.log(`Found ${uniqueCats.length} total cats, ${cats.length} cats over ${MIN_AGE_MONTHS} months (filtered ${filteredCount})`);
+    // Filter out duo adoptions if enabled
+    let filteredDuo = 0;
+    if (FILTER_DUO_ADOPTIONS) {
+      const beforeDuoFilter = cats.length;
+      cats = cats.filter(cat => !isDuoAdoption(cat));
+      filteredDuo = beforeDuoFilter - cats.length;
+      if (filteredDuo > 0) {
+        console.log(`Filtered out ${filteredDuo} duo adoption cat(s)`);
+      }
+    }
+
+    console.log(`Found ${uniqueCats.length} total cats, ${cats.length} eligible cats (filtered: ${filteredByAge} by age, ${filteredDuo} duo adoptions)`);
 
     if (cats.length === 0) {
       console.warn("WARNING: No cats found. HTML structure may have changed.");
@@ -244,6 +258,18 @@ function extractCats(html: string): Cat[] {
       }
     }
 
+    // Extract description text
+    let description = "";
+    const descElement = $(element).find("p, .description, .text").first();
+    if (descElement.length) {
+      description = descElement.text().trim();
+    } else {
+      // Try to get text content from the card
+      const cardText = $(element).text();
+      // Remove name and age from the text to get description
+      description = cardText.replace(name, "").replace(age, "").trim();
+    }
+
     // Build full URL
     const url = nameSlug ? `https://www.adopteereendier.be/katten/${id}/${nameSlug}` : `https://www.adopteereendier.be/katten/${id}`;
 
@@ -253,7 +279,8 @@ function extractCats(html: string): Cat[] {
       age: age || "Unknown",
       ageInMonths,
       imageUrl,
-      url
+      url,
+      description
     });
   });
 
@@ -306,6 +333,64 @@ function extractTotalCats(html: string): PageInfo {
     totalCats,
     totalPages
   };
+}
+
+/**
+ * Check if a cat is a duo adoption (must be adopted with another cat)
+ * Detects common Dutch patterns in name and description
+ */
+function isDuoAdoption(cat: Cat): boolean {
+  const nameAndDesc = `${cat.name} ${cat.description || ""}`.toLowerCase();
+
+  // Pattern 1: Direct duo adoption mentions in name/description
+  const duoPatterns = [
+    /\bduo[\s-]?adopti[ef]\b/i, // duoadoptie, duo adoptie, duo-adoptie
+    /\bduoadoptie\b/i, // duoadoptie (common in names)
+    /\balleen samen\b/i, // alleen samen (only together)
+    /\bsamen geadopteerd\b/i, // samen geadopteerd
+    /\bmoeten samen\b/i, // moeten samen
+    /\bkoppel\b/i // koppel (pair)
+  ];
+
+  // Pattern 2: Specific relationship mentions with context
+  const relationshipPatterns = [
+    /\b(broer|zus)[\s\w]*samen\b/i, // broer/zus mentioned with "samen"
+    /\bsamen met (zijn|haar) (broer|zus)\b/i,
+    /\b(broer|zus)\b.*\b(adopteren|adoptie)\b/i
+  ];
+
+  // Check duo patterns
+  for (const pattern of duoPatterns) {
+    if (pattern.test(nameAndDesc)) {
+      console.log(`[DUO FILTER] Cat "${cat.name}" (${cat.id}) - matched pattern: ${pattern}`);
+      return true;
+    }
+  }
+
+  // Check relationship patterns
+  for (const pattern of relationshipPatterns) {
+    if (pattern.test(nameAndDesc)) {
+      console.log(`[DUO FILTER] Cat "${cat.name}" (${cat.id}) - matched relationship pattern: ${pattern}`);
+      return true;
+    }
+  }
+
+  // Pattern 3: Name contains parentheses with duo indication
+  // e.g., "Edward (duoadoptie Bella)" or "Chili (duo adoptie Taco)"
+  if (/\([^)]*duo[^)]*\)/i.test(cat.name)) {
+    console.log(`[DUO FILTER] Cat "${cat.name}" (${cat.id}) - duo adoption in name`);
+    return true;
+  }
+
+  // Pattern 4: Name contains "(en ...)" which means "(and ...)"
+  // e.g., "Boris (en Bella)", "Milo (en Luna)"
+  // This indicates they must be adopted together
+  if (/\(\s*en\s+[^)]+\)/i.test(cat.name)) {
+    console.log(`[DUO FILTER] Cat "${cat.name}" (${cat.id}) - duo adoption "(en ...)" pattern in name`);
+    return true;
+  }
+
+  return false;
 }
 
 /**

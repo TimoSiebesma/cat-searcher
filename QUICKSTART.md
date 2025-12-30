@@ -9,10 +9,23 @@
 
 ## 2. Get Your Chat ID
 
+**Option A: Personal Chat (Solo notifications)**
+
 1. Send a message to your new bot
 2. Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
 3. Find `"chat":{"id":123456789}` in the response
 4. Save this chat ID
+
+**Option B: Group Chat (Share with others)**
+
+1. Create a new Telegram group
+2. Add members you want to receive notifications (e.g., your girlfriend)
+3. Add your bot to the group (search for your bot's username)
+4. Send a message in the group (e.g., "Hello bot!")
+5. Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
+6. Look for the group in the response: `"chat":{"id":-1234567890...}`
+7. The group ID will be a **negative number** (e.g., `-1001234567890`)
+8. Save this group chat ID
 
 ## 3. Generate Secret
 

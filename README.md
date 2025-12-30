@@ -7,6 +7,9 @@ Automated notification system for new adoptable cats on adopteereendier.be. Runs
 - ✅ Checks for new cats every 15 minutes via Vercel Cron
 - ✅ Persistent tracking using Vercel KV (Redis)
 - ✅ Telegram notifications with direct links
+- ✅ Dynamic page fetching (automatically fetches all available pages)
+- ✅ Filters out duo adoptions (cats that must be adopted together)
+- ✅ Age filtering (configurable minimum age)
 - ✅ Resilient error handling and retry logic
 - ✅ Secure endpoint protection
 - ✅ GitHub Actions fallback option
@@ -80,9 +83,10 @@ cp .env.example .env
 Edit `.env` with your values:
 
 - `TELEGRAM_BOT_TOKEN`: Your bot token from @BotFather
-- `TELEGRAM_CHAT_ID`: Your chat ID
+- `TELEGRAM_CHAT_ID`: Your chat ID (or group chat ID)
 - `CRON_SECRET`: Generate with: `openssl rand -hex 32`
 - `CHECK_URL`: (optional) defaults to the cats listing page
+- `FILTER_DUO_ADOPTIONS`: (optional) Set to `false` to include duo adoptions (default: `true`)
 
 **Important**: For production, set these in Vercel Dashboard:
 
@@ -92,6 +96,7 @@ vercel env add TELEGRAM_BOT_TOKEN
 vercel env add TELEGRAM_CHAT_ID
 vercel env add CRON_SECRET
 vercel env add CHECK_URL  # optional
+vercel env add FILTER_DUO_ADOPTIONS  # optional
 
 # Or via Vercel Dashboard:
 # Project Settings → Environment Variables
@@ -131,11 +136,43 @@ Expected response:
 ```json
 {
   "ok": true,
+  "totalCats": 60,
+  "totalPages": 4,
   "found": 15,
   "new": 3,
   "timestamp": "2025-12-30T12:00:00.000Z"
 }
 ```
+
+## Filtering Configuration
+
+### Duo Adoption Filter
+
+By default, the bot **filters out cats that must be adopted together** with another cat (duo adoptions). This is useful if you only want to adopt a single cat.
+
+**How it works:**
+
+The bot detects duo adoptions by checking cat names and descriptions for patterns like:
+
+- `duoadoptie`, `duo adoptie`, `duo-adoptie`
+- `alleen samen` (only together)
+- `broer/zus` mentions with adoption context
+- Names with `(duoadoptie ...)` format
+- Example: "Edward (duoadoptie Bella)"
+
+**To disable this filter:**
+
+Set the environment variable `FILTER_DUO_ADOPTIONS=false` if you want to see ALL cats including duo adoptions.
+
+```bash
+# In Vercel dashboard or via CLI:
+vercel env add FILTER_DUO_ADOPTIONS
+# Enter value: false
+```
+
+### Age Filter
+
+Cats under 6 months old are filtered out by default. To change this, modify `MIN_AGE_MONTHS` in the code.
 
 ## How It Works
 
