@@ -12,7 +12,7 @@ const CHECK_URL = process.env.CHECK_URL || "https://www.adopteereendier.be/katte
 // Constants
 const FETCH_TIMEOUT = 15000; // 15 seconds
 const MAX_CATS_TO_NOTIFY = 30; // Increased from 10 to show more cats
-const PAGES_TO_CHECK = 5; // Check pages 1-5
+const CATS_PER_PAGE = 16; // Number of cats shown per page
 const MIN_AGE_MONTHS = 6; // Minimum age in months
 
 // Types
@@ -23,6 +23,11 @@ interface Cat {
   ageInMonths: number;
   imageUrl: string;
   url: string;
+}
+
+interface PageInfo {
+  totalCats: number;
+  totalPages: number;
 }
 
 /**
@@ -47,19 +52,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log(`[${new Date().toISOString()}] Starting cat check for: ${CHECK_URL}`);
 
-    // Fetch and parse multiple pages
-    const allCats: Cat[] = [];
-    for (let page = 1; page <= PAGES_TO_CHECK; page++) {
-      const pageUrl = page === 1 ? CHECK_URL : `${CHECK_URL}${CHECK_URL.includes("?") ? "&" : "?"}page=${page}`;
-      console.log(`Fetching page ${page}...`);
+    // Step 1: Fetch the first page to get total count
+    console.log(`Fetching page 1 to determine total cats...`);
+    const firstPageHtml = await fetchListing(CHECK_URL);
+    const pageInfo = extractTotalCats(firstPageHtml);
+    const firstPageCats = extractCats(firstPageHtml);
 
-      const html = await fetchListing(pageUrl);
-      const pageCats = extractCats(html);
-      allCats.push(...pageCats);
+    console.log(`Total cats found: ${pageInfo.totalCats}, Total pages: ${pageInfo.totalPages}`);
 
-      // Small delay between page requests
-      if (page < PAGES_TO_CHECK) {
-        await sleep(1000);
+    const allCats: Cat[] = [...firstPageCats];
+
+    // Step 2: Fetch remaining pages if needed
+    if (pageInfo.totalPages > 1) {
+      for (let page = 2; page <= pageInfo.totalPages; page++) {
+        const pageUrl = `${CHECK_URL}${CHECK_URL.includes("?") ? "&" : "?"}page=${page}`;
+        console.log(`Fetching page ${page} of ${pageInfo.totalPages}...`);
+
+        const html = await fetchListing(pageUrl);
+        const pageCats = extractCats(html);
+        allCats.push(...pageCats);
+
+        console.log(`Page ${page}: Found ${pageCats.length} cats (Total so far: ${allCats.length})`);
+
+        // Small delay between page requests to be respectful
+        if (page < pageInfo.totalPages) {
+          await sleep(1000);
+        }
       }
     }
 
@@ -99,6 +117,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       ok: true,
+      totalCats: pageInfo.totalCats,
+      totalPages: pageInfo.totalPages,
       found: cats.length,
       new: newCats.length,
       timestamp: new Date().toISOString()
@@ -241,6 +261,51 @@ function extractCats(html: string): Cat[] {
   const uniqueCats = cats.filter((cat, index, self) => self.findIndex(c => c.id === cat.id) === index);
 
   return uniqueCats;
+}
+
+/**
+ * Extract total number of cats from the page
+ */
+function extractTotalCats(html: string): PageInfo {
+  const $ = cheerio.load(html);
+
+  // Look for the total count in the format: "<span class="mr-2 font-medium">60</span> katten"
+  let totalCats = 0;
+
+  // Try to find the count in the header section
+  const countText = $(".bg-color9 .font-medium").first().text().trim();
+  if (countText) {
+    const count = parseInt(countText);
+    if (!isNaN(count)) {
+      totalCats = count;
+    }
+  }
+
+  // If not found, try alternative selectors
+  if (totalCats === 0) {
+    // Look for pattern like "60 katten"
+    $("span, div, p").each((_, element) => {
+      const text = $(element).text().trim();
+      const match = text.match(/^(\d+)\s+katten?$/i);
+      if (match) {
+        const count = parseInt(match[1]);
+        if (!isNaN(count) && count > 0) {
+          totalCats = count;
+          return false; // Break the loop
+        }
+      }
+    });
+  }
+
+  // Calculate total pages needed
+  const totalPages = totalCats > 0 ? Math.ceil(totalCats / CATS_PER_PAGE) : 1;
+
+  console.log(`Extracted total cats: ${totalCats}, calculated pages: ${totalPages}`);
+
+  return {
+    totalCats,
+    totalPages
+  };
 }
 
 /**
