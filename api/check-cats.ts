@@ -14,7 +14,6 @@ const FILTER_DUO_ADOPTIONS = process.env.FILTER_DUO_ADOPTIONS !== "false"; // De
 const FETCH_TIMEOUT = 15000; // 15 seconds
 const MAX_CATS_TO_NOTIFY = 30; // Increased from 10 to show more cats
 const CATS_PER_PAGE = 16; // Number of cats shown per page
-const MIN_AGE_MONTHS = 6; // Minimum age in months
 const CHAT_IDS_KEY = "telegram:chat_ids"; // Redis key for storing multiple chat IDs
 
 // Types
@@ -88,9 +87,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Remove duplicates by ID
     const uniqueCats = allCats.filter((cat, index, self) => self.findIndex(c => c.id === cat.id) === index);
 
-    // Filter out cats under minimum age
-    let cats = uniqueCats.filter(cat => cat.ageInMonths >= MIN_AGE_MONTHS);
-    const filteredByAge = uniqueCats.length - cats.length;
+    let cats = uniqueCats;
 
     // Filter out duo adoptions if enabled
     let filteredDuo = 0;
@@ -103,7 +100,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    console.log(`Found ${uniqueCats.length} total cats, ${cats.length} eligible cats (filtered: ${filteredByAge} by age, ${filteredDuo} duo adoptions)`);
+    console.log(`Found ${uniqueCats.length} total cats, ${cats.length} eligible cats (filtered: ${filteredDuo} duo adoptions)`);
 
     if (cats.length === 0) {
       console.warn("WARNING: No cats found. HTML structure may have changed.");
@@ -440,7 +437,7 @@ async function persistCatIds(catIds: string[]): Promise<void> {
  */
 async function getChatIds(): Promise<string[]> {
   try {
-    const chatDatas = await kv.smembers(CHAT_IDS_KEY) as string[];
+    const chatDatas = (await kv.smembers(CHAT_IDS_KEY)) as string[];
 
     if (!chatDatas || chatDatas.length === 0) {
       // Fallback to environment variable if no chats registered
@@ -452,15 +449,17 @@ async function getChatIds(): Promise<string[]> {
       return [];
     }
 
-    const chatIds = chatDatas.map(chatDataStr => {
-      try {
-        const chatData = JSON.parse(chatDataStr);
-        return chatData.id;
-      } catch (e) {
-        console.warn(`[KV] Failed to parse chat data: ${chatDataStr}`);
-        return null;
-      }
-    }).filter(id => id !== null) as string[];
+    const chatIds = chatDatas
+      .map(chatDataStr => {
+        try {
+          const chatData = JSON.parse(chatDataStr);
+          return chatData.id;
+        } catch (e) {
+          console.warn(`[KV] Failed to parse chat data: ${chatDataStr}`);
+          return null;
+        }
+      })
+      .filter(id => id !== null) as string[];
 
     console.log(`[KV] Found ${chatIds.length} registered chat(s): ${chatIds.join(", ")}`);
     return chatIds;
